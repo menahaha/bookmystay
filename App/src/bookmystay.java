@@ -22,7 +22,7 @@ class Reservation {
 
 // --- 2. BOOKING QUEUE (The Waitlist) ---
 class BookingQueue {
-    // We use LinkedList because it implements the Queue interface in Java
+    // We use LinkedList because it implements the Queue interface
     private Queue<Reservation> requestQueue;
 
     public BookingQueue() {
@@ -34,7 +34,7 @@ class BookingQueue {
      */
     public void addRequest(Reservation res) {
         requestQueue.add(res);
-        System.out.println("Enqueued: " + res.getGuestName() + " is waiting for a " + res.getRoomType());
+        System.out.println("[Queue] Added: " + res.getGuestName() + " (" + res.getRoomType() + ")");
     }
 
     /**
@@ -51,7 +51,7 @@ class BookingQueue {
         }
     }
 
-    // Accessor for the next phase (Processing)
+    // Accessor for the next phase (Allocation)
     public Queue<Reservation> getRequestQueue() {
         return requestQueue;
     }
@@ -60,7 +60,9 @@ class BookingQueue {
 // --- 3. MAIN APPLICATION ---
 public class bookmystay {
     public static void main(String[] args) {
-        System.out.println("Book My Stay v5.0 - Fair Request Handling");
+        System.out.println("========================================");
+        System.out.println("   Book My Stay - System v5.0");
+        System.out.println("========================================");
 
         // Initialize our Queue
         BookingQueue bookingOffice = new BookingQueue();
@@ -74,6 +76,6 @@ public class bookmystay {
         bookingOffice.displayQueue();
 
         System.out.println("\nTotal requests waiting: " + bookingOffice.getRequestQueue().size());
-        System.out.println("Note: No rooms have been assigned yet. Inventory remains unchanged.");
+        System.out.println("Status: Requests are queued and ready for allocation.");
     }
 }
