@@ -13,6 +13,7 @@ class InvalidBookingException extends Exception {
 class Reservation {
     private String guestName;
     private String roomType;
+    private boolean isCancelled = false;
 
     public Reservation(String guestName, String roomType) {
         this.guestName = guestName;
@@ -21,7 +22,8 @@ class Reservation {
 
     @Override
     public String toString() {
-        return "Guest: " + guestName + " | Room: " + roomType;
+        String status = isCancelled ? "[CANCELLED]" : "[CONFIRMED]";
+        return status + " Guest: " + guestName + " | Room: " + roomType;
     }
 }
 
@@ -30,6 +32,8 @@ class Reservation {
 // ==========================================
 class RoomInventory {
     private Map<String, Integer> inventory = new HashMap<>();
+    // Stack to track recently released room types for rollback audit
+    private Stack<String> rollbackStack = new Stack<>();
 
     public void addRoomType(String type, int count) { inventory.put(type, count); }
 
@@ -121,5 +125,12 @@ public class bookmystay {
         } else {
             System.out.println("SUCCESS: Thread safety maintained. No double bookings.");
         }
+
+        // 4. Verify System State
+        System.out.println("After Cancellation - Double Rooms: " + inventory.getCount("Double Room"));
+        inventory.showRollbackLog();
+
+        System.out.println("\nFinal Audit Log:");
+        history.getHistoryLog().forEach(System.out::println);
     }
 }
