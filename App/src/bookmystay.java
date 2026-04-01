@@ -85,6 +85,7 @@ class BookingValidator {
         if (count <= 0) {
             throw new InvalidBookingException("Room type '" + roomType + "' is currently sold out.");
         }
+        System.out.println("----------------------------");
     }
 }
 
