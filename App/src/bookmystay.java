@@ -1,140 +1,115 @@
+import java.io.*;
 import java.util.*;
 
 // ==========================================
-// USE CASE 9: CUSTOM EXCEPTION
+// MODELS (Must implement Serializable)
 // ==========================================
-class InvalidBookingException extends Exception {
-    public InvalidBookingException(String message) { super(message); }
-}
-
-// ==========================================
-// USE CASE 5: RESERVATION MODEL
-// ==========================================
-class Reservation {
+class Reservation implements Serializable {
+    private static final long serialVersionUID = 1L; // Ensures version compatibility
     private String guestName;
     private String roomType;
-    private boolean isCancelled = false;
 
     public Reservation(String guestName, String roomType) {
         this.guestName = guestName;
         this.roomType = roomType;
     }
 
-    public String getGuestName() { return guestName; }
-    public String getRoomType() { return roomType; }
-    public boolean isCancelled() { return isCancelled; }
-    public void setCancelled(boolean cancelled) { isCancelled = cancelled; }
-
     @Override
-    public String toString() {
-        String status = isCancelled ? "[CANCELLED]" : "[CONFIRMED]";
-        return status + " Guest: " + guestName + " | Room: " + roomType;
+    public String toString() { return "Guest: " + guestName + " | Room: " + roomType; }
+}
+
+// ==========================================
+// PERSISTENT STATE HOLDER
+// ==========================================
+class AppState implements Serializable {
+    private static final long serialVersionUID = 1L;
+    public Map<String, Integer> inventory;
+    public List<Reservation> history;
+
+    public AppState(Map<String, Integer> inventory, List<Reservation> history) {
+        this.inventory = inventory;
+        this.history = history;
     }
 }
 
 // ==========================================
-// USE CASE 3 & 10: INVENTORY MANAGEMENT
+// USE CASE 12: PERSISTENCE SERVICE
 // ==========================================
-class RoomInventory {
-    private Map<String, Integer> inventory = new HashMap<>();
-    // Stack to track recently released room types for rollback audit
-    private Stack<String> rollbackStack = new Stack<>();
+class PersistenceService {
+    private static final String FILE_NAME = "hotel_data.ser";
 
-    public void addRoomType(String type, int count) { inventory.put(type, count); }
-
-    public int getCount(String type) {
-        return inventory.containsKey(type) ? inventory.get(type) : -1;
-    }
-
-    public void update(String type, int delta) {
-        inventory.put(type, inventory.get(type) + delta);
-        // If we are adding back (delta > 0), track it in rollback
-        if (delta > 0) { rollbackStack.push(type); }
-    }
-
-    public void showRollbackLog() {
-        System.out.println("Current Rollback Stack (Recent cancellations first): " + rollbackStack);
-    }
-}
-
-// ==========================================
-// USE CASE 10: CANCELLATION SERVICE (LIFO Rollback)
-// ==========================================
-class CancellationService {
     /**
-     * Reverses a booking, updates inventory, and logs the rollback.
+     * Serializes the current state to a file.
      */
-    public void cancelBooking(Reservation res, RoomInventory inventory) throws InvalidBookingException {
-        if (res == null || res.isCancelled()) {
-            throw new InvalidBookingException("Cancellation failed: Reservation is invalid or already cancelled.");
+    public void saveState(Map<String, Integer> inventory, List<Reservation> history) {
+        try (ObjectOutputStream oos = new ObjectOutputStream(new FileOutputStream(FILE_NAME))) {
+            AppState state = new AppState(inventory, history);
+            oos.writeObject(state);
+            System.out.println("[System] State successfully persisted to " + FILE_NAME);
+        } catch (IOException e) {
+            System.err.println("[Error] Failed to save state: " + e.getMessage());
+        }
+    }
+
+    /**
+     * Deserializes the state from a file.
+     */
+    public AppState loadState() {
+        File file = new File(FILE_NAME);
+        if (!file.exists()) {
+            System.out.println("[System] No previous state found. Starting fresh.");
+            return null;
         }
 
-        System.out.println("[Cancel] Processing rollback for: " + res.getGuestName());
-
-        // 1. Mark the object state
-        res.setCancelled(true);
-
-        // 2. Rollback the Inventory (+1)
-        inventory.update(res.getRoomType(), 1);
-
-        System.out.println("SUCCESS: Inventory restored for " + res.getRoomType());
+        try (ObjectInputStream ois = new ObjectInputStream(new FileInputStream(FILE_NAME))) {
+            return (AppState) ois.readObject();
+        } catch (IOException | ClassNotFoundException e) {
+            System.err.println("[Error] Recovery failed: " + e.getMessage());
+            return null;
+        }
     }
-}
-
-// ==========================================
-// PREVIOUS SERVICES (Validator & History)
-// ==========================================
-class BookingValidator {
-    public void validate(String roomType, RoomInventory inventory) throws InvalidBookingException {
-        int count = inventory.getCount(roomType);
-        if (count == -1) throw new InvalidBookingException("Unknown room type: " + roomType);
-        if (count <= 0) throw new InvalidBookingException("Room " + roomType + " is sold out.");
-    }
-}
-
-class BookingHistory {
-    private List<Reservation> historyLog = new ArrayList<>();
-    public void record(Reservation res) { historyLog.add(res); }
-    public List<Reservation> getHistoryLog() { return historyLog; }
 }
 
 // ==========================================
 // MAIN APPLICATION ENTRY POINT
 // ==========================================
-public class bookmystay {
+public class BookMyStayApp {
     public static void main(String[] args) {
-        // 1. Init
-        RoomInventory inventory = new RoomInventory();
-        BookingHistory history = new BookingHistory();
-        BookingValidator validator = new BookingValidator();
-        CancellationService cancellationService = new CancellationService();
+        PersistenceService persistence = new PersistenceService();
 
-        inventory.addRoomType("Double Room", 2);
-        System.out.println("=== Book My Stay v10.0: Inventory Rollback ===");
+        // 1. RECOVERY PHASE
+        AppState savedState = persistence.loadState();
 
-        // 2. Perform a Booking
-        Reservation myBooking = new Reservation("Alice", "Double Room");
-        try {
-            validator.validate("Double Room", inventory);
-            inventory.update("Double Room", -1);
-            history.record(myBooking);
-            System.out.println("Confirmed: " + myBooking);
-        } catch (Exception e) { System.out.println(e.getMessage()); }
+        Map<String, Integer> inventory;
+        List<Reservation> history;
 
-        System.out.println("Current Double Rooms: " + inventory.getCount("Double Room"));
-
-        // 3. Perform a Cancellation (Rollback)
-        try {
-            cancellationService.cancelBooking(myBooking, inventory);
-        } catch (InvalidBookingException e) {
-            System.out.println(e.getMessage());
+        if (savedState != null) {
+            inventory = savedState.inventory;
+            history = savedState.history;
+            System.out.println("RECOVERY SUCCESSFUL. Restored " + history.size() + " bookings.");
+        } else {
+            inventory = new HashMap<>();
+            history = new ArrayList<>();
+            inventory.put("Suite Room", 5);
+            System.out.println("INITIALIZED NEW SYSTEM STATE.");
         }
 
-        // 4. Verify System State
-        System.out.println("After Cancellation - Double Rooms: " + inventory.getCount("Double Room"));
-        inventory.showRollbackLog();
+        // 2. SIMULATE ACTIVITY
+        System.out.println("\n--- Current Inventory: " + inventory + " ---");
 
-        System.out.println("\nFinal Audit Log:");
-        history.getHistoryLog().forEach(System.out::println);
+        if (inventory.get("Suite Room") > 0) {
+            String guest = "Guest_" + (history.size() + 1);
+            System.out.println("[Action] Booking for " + guest);
+            inventory.put("Suite Room", inventory.get("Suite Room") - 1);
+            history.add(new Reservation(guest, "Suite Room"));
+        }
+
+        // 3. SHUTDOWN & PERSISTENCE PHASE
+        System.out.println("\nShutting down system...");
+        persistence.saveState(inventory, history);
+
+        System.out.println("Final History Log:");
+        history.forEach(System.out::println);
+        System.out.println("=== Session Ended ===");
     }
 }
