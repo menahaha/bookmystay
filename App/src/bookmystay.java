@@ -1,101 +1,95 @@
 import java.util.HashMap;
 import java.util.Map;
+import java.util.ArrayList;
+import java.util.List;
 
-// --- DOMAIN MODEL (What a Room is) ---
-
+// --- 1. DOMAIN MODEL (Unchanged from UC3) ---
 abstract class Room {
     private String roomType;
     private double pricePerNight;
-
     public Room(String roomType, double pricePerNight) {
         this.roomType = roomType;
         this.pricePerNight = pricePerNight;
     }
-
     public String getRoomType() { return roomType; }
     public double getPricePerNight() { return pricePerNight; }
-
     public abstract void displayFeatures();
 }
 
 class SingleRoom extends Room {
     public SingleRoom() { super("Single Room", 100.0); }
-    @Override
-    public void displayFeatures() {
-        System.out.println("-> Features: 1 Twin Bed, Wi-Fi, Work Desk.");
-    }
+    @Override public void displayFeatures() { System.out.print("1 Twin Bed, Wi-Fi"); }
 }
 
 class DoubleRoom extends Room {
     public DoubleRoom() { super("Double Room", 180.0); }
-    @Override
-    public void displayFeatures() {
-        System.out.println("-> Features: 1 Queen Bed, Mini-bar, Sea View.");
+    @Override public void displayFeatures() { System.out.print("1 Queen Bed, Sea View"); }
+}
+
+// --- 2. STATE HOLDER (The "Source of Truth") ---
+class RoomInventory {
+    private Map<String, Integer> inventory = new HashMap<>();
+
+    public void addRoomType(String type, int count) { inventory.put(type, count); }
+
+    // Read-only access for the Search Service
+    public int getCount(String type) { return inventory.getOrDefault(type, 0); }
+
+    // Mutation access (Used only for actual bookings)
+    public void update(String type, int delta) {
+        inventory.put(type, getCount(type) + delta);
     }
 }
 
-// --- STATE MANAGEMENT (How many Rooms we have) ---
+// --- 3. SEARCH SERVICE (The new Read-Only Layer) ---
+class SearchService {
+    /**
+     * Filters and displays only available rooms.
+     * This method does NOT modify the inventory.
+     */
+    public void searchAvailableRooms(List<Room> catalog, RoomInventory inventory) {
+        System.out.println("\n--- Available Rooms Search Results ---");
+        boolean found = false;
 
-class RoomInventory {
-    private Map<String, Integer> inventory;
+        for (Room room : catalog) {
+            int availableCount = inventory.getCount(room.getRoomType());
 
-    public RoomInventory() {
-        this.inventory = new HashMap<>();
-    }
+            // Validation Logic: Only show rooms with count > 0
+            if (availableCount > 0) {
+                System.out.println("[" + room.getRoomType() + "] - Price: $" + room.getPricePerNight());
+                System.out.print("   ");
+                room.displayFeatures();
+                System.out.println(" | Left: " + availableCount);
+                found = true;
+            }
+        }
 
-    public void addRoomType(String roomType, int count) {
-        inventory.put(roomType, count);
-    }
-
-    public int getAvailability(String roomType) {
-        return inventory.getOrDefault(roomType, 0);
-    }
-
-    public boolean updateAvailability(String roomType, int change) {
-        int currentCount = getAvailability(roomType);
-        if (currentCount + change < 0) return false;
-        inventory.put(roomType, currentCount + change);
-        return true;
-    }
-
-    public void displayInventory() {
-        System.out.println("\n--- Current Room Inventory ---");
-        for (Map.Entry<String, Integer> entry : inventory.entrySet()) {
-            System.out.println(entry.getKey() + ": [" + entry.getValue() + " left]");
+        if (!found) {
+            System.out.println("Sorry, no rooms are currently available.");
         }
     }
 }
 
-// --- APPLICATION ENTRY POINT (The Manager) ---
-
+// --- 4. MAIN APPLICATION FILE ---
 public class bookmystay {
     public static void main(String[] args) {
-        System.out.println("========================================");
-        System.out.println("   Book My Stay - System v3.0");
-        System.out.println("========================================");
+        // Setup System
+        RoomInventory inventory = new RoomInventory();
+        SearchService searchService = new SearchService();
 
-        // 1. Setup Inventory
-        RoomInventory inventoryManager = new RoomInventory();
-        inventoryManager.addRoomType("Single Room", 8);
-        inventoryManager.addRoomType("Double Room", 4);
+        // Define our Catalog
+        List<Room> catalog = new ArrayList<>();
+        catalog.add(new SingleRoom());
+        catalog.add(new DoubleRoom());
 
-        // 2. Define Room Objects
-        Room sRoom = new SingleRoom();
-        Room dRoom = new DoubleRoom();
+        // Initial Stock: 2 Singles, 0 Doubles (to test filtering)
+        inventory.addRoomType("Single Room", 2);
+        inventory.addRoomType("Double Room", 0);
 
-        // 3. Show Initial State
-        inventoryManager.displayInventory();
+        // Perform Search
+        System.out.println("User is searching for rooms...");
+        searchService.searchAvailableRooms(catalog, inventory);
 
-        // 4. Test a Transaction
-        System.out.println("\n[Action] Processing booking for 1 Double Room...");
-        if (inventoryManager.updateAvailability(dRoom.getRoomType(), -1)) {
-            System.out.println("SUCCESS: Room secured.");
-        } else {
-            System.out.println("FAILED: Room sold out.");
-        }
-
-        // 5. Final State
-        inventoryManager.displayInventory();
-        System.out.println("\nSystem operation complete.");
+        System.out.println("\nSearch complete. No system state was changed.");
     }
 }
