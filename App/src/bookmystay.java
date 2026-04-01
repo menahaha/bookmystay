@@ -1,95 +1,79 @@
-import java.util.HashMap;
-import java.util.Map;
-import java.util.ArrayList;
-import java.util.List;
+import java.util.LinkedList;
+import java.util.Queue;
 
-// --- 1. DOMAIN MODEL (Unchanged from UC3) ---
-abstract class Room {
+// --- 1. RESERVATION MODEL (The Guest's Intent) ---
+class Reservation {
+    private String guestName;
     private String roomType;
-    private double pricePerNight;
-    public Room(String roomType, double pricePerNight) {
+
+    public Reservation(String guestName, String roomType) {
+        this.guestName = guestName;
         this.roomType = roomType;
-        this.pricePerNight = pricePerNight;
     }
+
+    public String getGuestName() { return guestName; }
     public String getRoomType() { return roomType; }
-    public double getPricePerNight() { return pricePerNight; }
-    public abstract void displayFeatures();
-}
 
-class SingleRoom extends Room {
-    public SingleRoom() { super("Single Room", 100.0); }
-    @Override public void displayFeatures() { System.out.print("1 Twin Bed, Wi-Fi"); }
-}
-
-class DoubleRoom extends Room {
-    public DoubleRoom() { super("Double Room", 180.0); }
-    @Override public void displayFeatures() { System.out.print("1 Queen Bed, Sea View"); }
-}
-
-// --- 2. STATE HOLDER (The "Source of Truth") ---
-class RoomInventory {
-    private Map<String, Integer> inventory = new HashMap<>();
-
-    public void addRoomType(String type, int count) { inventory.put(type, count); }
-
-    // Read-only access for the Search Service
-    public int getCount(String type) { return inventory.getOrDefault(type, 0); }
-
-    // Mutation access (Used only for actual bookings)
-    public void update(String type, int delta) {
-        inventory.put(type, getCount(type) + delta);
+    @Override
+    public String toString() {
+        return "Reservation [Guest: " + guestName + ", Room: " + roomType + "]";
     }
 }
 
-// --- 3. SEARCH SERVICE (The new Read-Only Layer) ---
-class SearchService {
+// --- 2. BOOKING QUEUE (The Waitlist) ---
+class BookingQueue {
+    // We use LinkedList because it implements the Queue interface in Java
+    private Queue<Reservation> requestQueue;
+
+    public BookingQueue() {
+        this.requestQueue = new LinkedList<>();
+    }
+
     /**
-     * Filters and displays only available rooms.
-     * This method does NOT modify the inventory.
+     * Adds a new booking request to the end of the line.
      */
-    public void searchAvailableRooms(List<Room> catalog, RoomInventory inventory) {
-        System.out.println("\n--- Available Rooms Search Results ---");
-        boolean found = false;
+    public void addRequest(Reservation res) {
+        requestQueue.add(res);
+        System.out.println("Enqueued: " + res.getGuestName() + " is waiting for a " + res.getRoomType());
+    }
 
-        for (Room room : catalog) {
-            int availableCount = inventory.getCount(room.getRoomType());
-
-            // Validation Logic: Only show rooms with count > 0
-            if (availableCount > 0) {
-                System.out.println("[" + room.getRoomType() + "] - Price: $" + room.getPricePerNight());
-                System.out.print("   ");
-                room.displayFeatures();
-                System.out.println(" | Left: " + availableCount);
-                found = true;
+    /**
+     * Shows all currently waiting requests without removing them.
+     */
+    public void displayQueue() {
+        System.out.println("\n--- Current Booking Request Queue (FIFO) ---");
+        if (requestQueue.isEmpty()) {
+            System.out.println("The queue is currently empty.");
+        } else {
+            for (Reservation res : requestQueue) {
+                System.out.println(" >> " + res);
             }
         }
+    }
 
-        if (!found) {
-            System.out.println("Sorry, no rooms are currently available.");
-        }
+    // Accessor for the next phase (Processing)
+    public Queue<Reservation> getRequestQueue() {
+        return requestQueue;
     }
 }
 
-// --- 4. MAIN APPLICATION FILE ---
+// --- 3. MAIN APPLICATION ---
 public class bookmystay {
     public static void main(String[] args) {
-        // Setup System
-        RoomInventory inventory = new RoomInventory();
-        SearchService searchService = new SearchService();
+        System.out.println("Book My Stay v5.0 - Fair Request Handling");
 
-        // Define our Catalog
-        List<Room> catalog = new ArrayList<>();
-        catalog.add(new SingleRoom());
-        catalog.add(new DoubleRoom());
+        // Initialize our Queue
+        BookingQueue bookingOffice = new BookingQueue();
 
-        // Initial Stock: 2 Singles, 0 Doubles (to test filtering)
-        inventory.addRoomType("Single Room", 2);
-        inventory.addRoomType("Double Room", 0);
+        // Simulate incoming requests in order
+        bookingOffice.addRequest(new Reservation("Alice", "Suite Room"));
+        bookingOffice.addRequest(new Reservation("Bob", "Single Room"));
+        bookingOffice.addRequest(new Reservation("Charlie", "Suite Room"));
 
-        // Perform Search
-        System.out.println("User is searching for rooms...");
-        searchService.searchAvailableRooms(catalog, inventory);
+        // Display the queue to prove order is preserved
+        bookingOffice.displayQueue();
 
-        System.out.println("\nSearch complete. No system state was changed.");
+        System.out.println("\nTotal requests waiting: " + bookingOffice.getRequestQueue().size());
+        System.out.println("Note: No rooms have been assigned yet. Inventory remains unchanged.");
     }
 }
