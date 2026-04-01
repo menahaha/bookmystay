@@ -20,11 +20,6 @@ class Reservation {
         this.roomType = roomType;
     }
 
-    public String getGuestName() { return guestName; }
-    public String getRoomType() { return roomType; }
-    public boolean isCancelled() { return isCancelled; }
-    public void setCancelled(boolean cancelled) { isCancelled = cancelled; }
-
     @Override
     public String toString() {
         String status = isCancelled ? "[CANCELLED]" : "[CONFIRMED]";
@@ -33,7 +28,7 @@ class Reservation {
 }
 
 // ==========================================
-// USE CASE 3 & 10: INVENTORY MANAGEMENT
+// USE CASE 11: THREAD-SAFE INVENTORY
 // ==========================================
 class RoomInventory {
     private Map<String, Integer> inventory = new HashMap<>();
@@ -42,92 +37,93 @@ class RoomInventory {
 
     public void addRoomType(String type, int count) { inventory.put(type, count); }
 
-    public int getCount(String type) {
-        return inventory.containsKey(type) ? inventory.get(type) : -1;
-    }
-
-    public void update(String type, int delta) {
-        inventory.put(type, inventory.get(type) + delta);
-        // If we are adding back (delta > 0), track it in rollback
-        if (delta > 0) { rollbackStack.push(type); }
-    }
-
-    public void showRollbackLog() {
-        System.out.println("Current Rollback Stack (Recent cancellations first): " + rollbackStack);
-    }
-}
-
-// ==========================================
-// USE CASE 10: CANCELLATION SERVICE (LIFO Rollback)
-// ==========================================
-class CancellationService {
     /**
-     * Reverses a booking, updates inventory, and logs the rollback.
+     * Synchronized method ensures only ONE thread can check and
+     * update inventory at any given time (Critical Section).
      */
-    public void cancelBooking(Reservation res, RoomInventory inventory) throws InvalidBookingException {
-        if (res == null || res.isCancelled()) {
-            throw new InvalidBookingException("Cancellation failed: Reservation is invalid or already cancelled.");
+    public synchronized boolean tryBookRoom(String type) {
+        int count = inventory.getOrDefault(type, 0);
+        if (count > 0) {
+            // Simulate processing time to increase chance of race condition
+            try { Thread.sleep(10); } catch (InterruptedException e) {}
+
+            inventory.put(type, count - 1);
+            return true;
         }
-
-        System.out.println("[Cancel] Processing rollback for: " + res.getGuestName());
-
-        // 1. Mark the object state
-        res.setCancelled(true);
-
-        // 2. Rollback the Inventory (+1)
-        inventory.update(res.getRoomType(), 1);
-
-        System.out.println("SUCCESS: Inventory restored for " + res.getRoomType());
+        return false;
     }
+
+    public int getCount(String type) { return inventory.getOrDefault(type, 0); }
 }
 
 // ==========================================
-// PREVIOUS SERVICES (Validator & History)
+// USE CASE 11: CONCURRENT PROCESSOR (Thread Logic)
 // ==========================================
-class BookingValidator {
-    public void validate(String roomType, RoomInventory inventory) throws InvalidBookingException {
-        int count = inventory.getCount(roomType);
-        if (count == -1) throw new InvalidBookingException("Unknown room type: " + roomType);
-        if (count <= 0) throw new InvalidBookingException("Room " + roomType + " is sold out.");
-    }
-}
+class BookingTask implements Runnable {
+    private String guestName;
+    private String roomType;
+    private RoomInventory inventory;
+    private List<Reservation> history;
 
-class BookingHistory {
-    private List<Reservation> historyLog = new ArrayList<>();
-    public void record(Reservation res) { historyLog.add(res); }
-    public List<Reservation> getHistoryLog() { return historyLog; }
+    public BookingTask(String name, String type, RoomInventory inv, List<Reservation> hist) {
+        this.guestName = name;
+        this.roomType = type;
+        this.inventory = inv;
+        this.history = hist;
+    }
+
+    @Override
+    public void run() {
+        // Attempting to book in a multi-threaded environment
+        if (inventory.tryBookRoom(roomType)) {
+            Reservation res = new Reservation(guestName, roomType);
+            synchronized(history) { // History list also needs protection!
+                history.add(res);
+            }
+            System.out.println("[SUCCESS] " + guestName + " secured a " + roomType);
+        } else {
+            System.out.println("[FAILED] " + guestName + " - " + roomType + " is sold out.");
+        }
+    }
 }
 
 // ==========================================
 // MAIN APPLICATION ENTRY POINT
 // ==========================================
 public class bookmystay {
-    public static void main(String[] args) {
-        // 1. Init
-        RoomInventory inventory = new RoomInventory();
-        BookingHistory history = new BookingHistory();
-        BookingValidator validator = new BookingValidator();
-        CancellationService cancellationService = new CancellationService();
+    public static void main(String[] args) throws InterruptedException {
+        // 1. Setup Shared Resources
+        RoomInventory sharedInventory = new RoomInventory();
+        List<Reservation> sharedHistory = Collections.synchronizedList(new ArrayList<>());
 
-        inventory.addRoomType("Double Room", 2);
-        System.out.println("=== Book My Stay v10.0: Inventory Rollback ===");
+        // We only have 2 Double Rooms available
+        sharedInventory.addRoomType("Double Room", 2);
 
-        // 2. Perform a Booking
-        Reservation myBooking = new Reservation("Alice", "Double Room");
-        try {
-            validator.validate("Double Room", inventory);
-            inventory.update("Double Room", -1);
-            history.record(myBooking);
-            System.out.println("Confirmed: " + myBooking);
-        } catch (Exception e) { System.out.println(e.getMessage()); }
+        System.out.println("=== Book My Stay v11.0: Concurrent Simulation ===");
+        System.out.println("Initial Inventory: 2 Double Rooms\n");
 
-        System.out.println("Current Double Rooms: " + inventory.getCount("Double Room"));
+        // 2. Simulate 5 Guests trying to book those 2 rooms at once
+        Thread t1 = new Thread(new BookingTask("Alice", "Double Room", sharedInventory, sharedHistory));
+        Thread t2 = new Thread(new BookingTask("Bob", "Double Room", sharedInventory, sharedHistory));
+        Thread t3 = new Thread(new BookingTask("Charlie", "Double Room", sharedInventory, sharedHistory));
+        Thread t4 = new Thread(new BookingTask("Dave", "Double Room", sharedInventory, sharedHistory));
+        Thread t5 = new Thread(new BookingTask("Eve", "Double Room", sharedInventory, sharedHistory));
 
-        // 3. Perform a Cancellation (Rollback)
-        try {
-            cancellationService.cancelBooking(myBooking, inventory);
-        } catch (InvalidBookingException e) {
-            System.out.println(e.getMessage());
+        // Start all threads simultaneously
+        t1.start(); t2.start(); t3.start(); t4.start(); t5.start();
+
+        // Wait for all threads to finish
+        t1.join(); t2.join(); t3.join(); t4.join(); t5.join();
+
+        // 3. Final Verification
+        System.out.println("\n--- Final System State ---");
+        System.out.println("Remaining Double Rooms: " + sharedInventory.getCount("Double Room"));
+        System.out.println("Total Confirmed Bookings: " + sharedHistory.size());
+
+        if (sharedHistory.size() > 2) {
+            System.out.println("ERROR: Double Booking detected!");
+        } else {
+            System.out.println("SUCCESS: Thread safety maintained. No double bookings.");
         }
 
         // 4. Verify System State
