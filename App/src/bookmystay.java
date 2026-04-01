@@ -1,93 +1,145 @@
-import java.util.ArrayList;
-import java.util.HashMap;
-import java.util.List;
-import java.util.Map;
+import java.util.*;
 
-// --- 1. ADD-ON SERVICE MODEL ---
-class AddOnService {
-    private String serviceName;
-    private double price;
+// ==========================================
+// USE CASE 9: CUSTOM EXCEPTION
+// ==========================================
+class InvalidBookingException extends Exception {
+    public InvalidBookingException(String message) {
+        super(message);
+    }
+}
 
-    public AddOnService(String serviceName, double price) {
-        this.serviceName = serviceName;
-        this.price = price;
+// ==========================================
+// USE CASE 2: DOMAIN MODELS
+// ==========================================
+abstract class Room {
+    private String roomType;
+    private double pricePerNight;
+
+    public Room(String roomType, double pricePerNight) {
+        this.roomType = roomType;
+        this.pricePerNight = pricePerNight;
     }
 
-    public String getServiceName() { return serviceName; }
-    public double getPrice() { return price; }
+    public String getRoomType() { return roomType; }
+    public double getPricePerNight() { return pricePerNight; }
+}
+
+class SingleRoom extends Room {
+    public SingleRoom() { super("Single Room", 100.0); }
+}
+
+class DoubleRoom extends Room {
+    public DoubleRoom() { super("Double Room", 180.0); }
+}
+
+// ==========================================
+// USE CASE 5: RESERVATION MODEL
+// ==========================================
+class Reservation {
+    private String guestName;
+    private String roomType;
+
+    public Reservation(String guestName, String roomType) {
+        this.guestName = guestName;
+        this.roomType = roomType;
+    }
+
+    public String getGuestName() { return guestName; }
+    public String getRoomType() { return roomType; }
 
     @Override
     public String toString() {
-        return serviceName + " ($" + price + ")";
+        return "Guest: " + guestName + " | Room: " + roomType;
     }
 }
 
-// --- 2. SERVICE MANAGER (The "Attachment" Logic) ---
-class ServiceManager {
-    // Mapping Reservation ID -> List of Services
-    private Map<String, List<AddOnService>> reservationAddOns;
+// ==========================================
+// USE CASE 3: INVENTORY MANAGEMENT
+// ==========================================
+class RoomInventory {
+    private Map<String, Integer> inventory = new HashMap<>();
 
-    public ServiceManager() {
-        this.reservationAddOns = new HashMap<>();
+    public void addRoomType(String type, int count) { inventory.put(type, count); }
+
+    // Returns -1 if the room type doesn't exist at all
+    public int getCount(String type) {
+        return inventory.containsKey(type) ? inventory.get(type) : -1;
     }
 
-    /**
-     * Attaches a service to a specific reservation ID.
-     */
-    public void addServiceToReservation(String reservationId, AddOnService service) {
-        // If the ID isn't in the map, create a new list for it
-        reservationAddOns.computeIfAbsent(reservationId, k -> new ArrayList<>()).add(service);
-        System.out.println("[Service] Added " + service.getServiceName() + " to ID: " + reservationId);
+    public void update(String type, int delta) {
+        inventory.put(type, inventory.get(type) + delta);
     }
+}
 
-    /**
-     * Calculates the total cost of all add-ons for a specific reservation.
-     */
-    public double calculateTotalServiceCost(String reservationId) {
-        List<AddOnService> services = reservationAddOns.get(reservationId);
-        if (services == null) return 0.0;
+// ==========================================
+// USE CASE 9: VALIDATION LOGIC (Fail-Fast)
+// ==========================================
+class BookingValidator {
+    public void validate(String roomType, RoomInventory inventory) throws InvalidBookingException {
+        int count = inventory.getCount(roomType);
 
-        double total = 0;
-        for (AddOnService s : services) {
-            total += s.getPrice();
+        if (count == -1) {
+            throw new InvalidBookingException("Room type '" + roomType + "' is not recognized by the system.");
         }
-        return total;
-    }
-
-    public void displayServicesForReservation(String reservationId) {
-        List<AddOnService> services = reservationAddOns.get(reservationId);
-        System.out.println("\n--- Add-on Services for " + reservationId + " ---");
-        if (services == null || services.isEmpty()) {
-            System.out.println("No extra services selected.");
-        } else {
-            services.forEach(s -> System.out.println(" + " + s));
-            System.out.println("Total Extra Cost: $" + calculateTotalServiceCost(reservationId));
+        if (count <= 0) {
+            throw new InvalidBookingException("Room type '" + roomType + "' is currently sold out.");
         }
     }
 }
 
-// --- 3. UPDATED MAIN APPLICATION ---
+// ==========================================
+// USE CASE 8: HISTORY & REPORTING
+// ==========================================
+class BookingHistory {
+    private List<Reservation> historyLog = new ArrayList<>();
+    public void record(Reservation res) { historyLog.add(res); }
+    public List<Reservation> getHistoryLog() { return historyLog; }
+}
+
+// ==========================================
+// MAIN APPLICATION ENTRY POINT
+// ==========================================
 public class bookmystay {
     public static void main(String[] args) {
-        System.out.println("Book My Stay v7.0 - Optional Services & Extensibility");
+        // 1. Initialize Components
+        RoomInventory inventory = new RoomInventory();
+        BookingHistory history = new BookingHistory();
+        BookingValidator validator = new BookingValidator();
 
-        // Assume a reservation was confirmed in the previous step
-        String resId = "RES101";
+        // 2. Setup Initial State
+        inventory.addRoomType("Single Room", 1); // Only one left!
 
-        ServiceManager serviceManager = new ServiceManager();
+        System.out.println("=== Book My Stay v9.0: Validation & Reliability ===");
 
-        // 1. Define available services
-        AddOnService breakfast = new AddOnService("Buffet Breakfast", 25.0);
-        AddOnService wifi = new AddOnService("Premium Wi-Fi", 10.0);
-        AddOnService spa = new AddOnService("Spa Treatment", 120.0);
+        // 3. Scenario: Attempting to book a non-existent room
+        processBooking("Alice", "Penthouse", validator, inventory, history);
 
-        // 2. Guest selects services
-        serviceManager.addServiceToReservation(resId, breakfast);
-        serviceManager.addServiceToReservation(resId, spa);
+        // 4. Scenario: Successful booking
+        processBooking("Bob", "Single Room", validator, inventory, history);
 
-        // 3. Display the results
-        serviceManager.displayServicesForReservation(resId);
+        // 5. Scenario: Attempting to book the same room (Now Sold Out)
+        processBooking("Charlie", "Single Room", validator, inventory, history);
+    }
 
-        System.out.println("\nCore booking logic remains untouched. Services are managed independently.");
+    /**
+     * Helper method to encapsulate the Try-Catch logic.
+     */
+    public static void processBooking(String name, String room, BookingValidator v, RoomInventory i, BookingHistory h) {
+        try {
+            System.out.println("\n[Request] " + name + " wants a " + room);
+
+            // Validate first (Throws Exception if invalid)
+            v.validate(room, i);
+
+            // If we reach here, validation passed
+            i.update(room, -1);
+            h.record(new Reservation(name, room));
+            System.out.println("RESULT: Booking confirmed for " + name);
+
+        } catch (InvalidBookingException e) {
+            // Handle error gracefully
+            System.out.println("RESULT: FAILED - " + e.getMessage());
+        }
     }
 }
